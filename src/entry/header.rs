@@ -4,6 +4,7 @@ use bytes::{Buf, BufMut, Bytes};
 
 // Defining a struct Header with key and value as Bytes
 // It use length delimited encoding
+#[derive(Clone)]
 pub struct Header {
     key: Bytes,
     value: Bytes,
@@ -24,6 +25,16 @@ impl Header {
     // Getter for value
     pub fn value(&self) -> &Bytes {
         &self.value
+    }
+
+    // Method to estimate the size of the Header
+    pub fn estimate_size(&self) -> usize {
+        let key_len = self.key.len();
+        let value_len = self.value.len();
+        prost::length_delimiter_len(key_len)
+            + prost::length_delimiter_len(value_len)
+            + self.key.len()
+            + self.value.len()
     }
 
     // Method to encode the Header into a buffer
@@ -72,6 +83,15 @@ mod tests {
 
         assert_eq!(header.key(), &key);
         assert_eq!(header.value(), &value);
+    }
+
+    #[test]
+    fn test_estimate_size() {
+        let key = Bytes::from_static(b"key");
+        let value = Bytes::from_static(b"value");
+        let header = Header::new(key.clone(), value.clone());
+
+        assert_eq!(header.estimate_size(), 2 + key.len() + value.len());
     }
 
     #[test]
