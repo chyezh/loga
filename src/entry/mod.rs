@@ -31,9 +31,39 @@ pub struct Entry {
 }
 
 impl Entry {
-    // Returns a new `EntryBuilder` instance
-    pub fn builder() -> EntryBuilder {
-        EntryBuilder::default()
+    // Getter for attr
+    pub fn attr(&self) -> Attr {
+        self.attr
+    }
+
+    // Getter for log_id
+    pub fn log_id(&self) -> i64 {
+        self.log_id
+    }
+
+    // Getter for entry_id
+    pub fn entry_id(&self) -> i64 {
+        self.entry_id
+    }
+
+    // Getter for last_confirm
+    pub fn last_confirm(&self) -> i64 {
+        self.last_confirm
+    }
+
+    // Getter for key
+    pub fn key(&self) -> &Bytes {
+        &self.kv.key
+    }
+
+    // Getter for value
+    pub fn value(&self) -> &Bytes {
+        &self.kv.value
+    }
+
+    // Getter for headers
+    pub fn headers(&self) -> &[Header] {
+        &self.headers
     }
 
     // Method to estimate the size of the Entry
@@ -111,52 +141,59 @@ impl Entry {
 
 /// The `EntryBuilder` struct provides a way to construct a new `Entry`.
 #[derive(Default)]
-struct EntryBuilder {
+pub struct EntryBuilder {
     log_id: Option<i64>,
     entry_id: Option<i64>,
-    attr: Option<Attr>,
+    attr: Attr,
     last_confirm: Option<i64>,
     kv: Option<Header>,
     headers: Vec<Header>,
 }
 
 impl EntryBuilder {
+    // Method to set the attr of the EntryBuilder
     pub fn attr(mut self, attr: Attr) -> Self {
-        self.attr = Some(attr);
+        self.attr = attr;
         self
     }
 
+    // Method to set the log_id of the EntryBuilder
     pub fn log_id(mut self, log_id: i64) -> Self {
         self.log_id = Some(log_id);
         self
     }
 
+    // Method to set the entry_id of the EntryBuilder
     pub fn entry_id(mut self, entry_id: i64) -> Self {
         self.entry_id = Some(entry_id);
         self
     }
 
+    // Method to set the last_confirm of the EntryBuilder
     pub fn last_confirm(mut self, last_confirm: i64) -> Self {
         self.last_confirm = Some(last_confirm);
         self
     }
 
+    // Method to set the kv of the EntryBuilder
     pub fn kv(mut self, key: Bytes, value: Bytes) -> Self {
         self.kv = Some(Header::new(key, value));
         self
     }
 
+    // Method to set the header of the EntryBuilder
     pub fn header(mut self, header: Header) -> Self {
         self.headers.push(header);
         self
     }
 
+    // Method to build the Entry
     pub fn build(self) -> Entry {
         Entry {
             magic: Magic::V1,
             log_id: self.log_id.unwrap(),
             entry_id: self.entry_id.unwrap(),
-            attr: self.attr.unwrap(),
+            attr: self.attr,
             last_confirm: self.last_confirm.unwrap(),
             kv: self.kv.unwrap(),
             headers: self.headers,
@@ -195,6 +232,15 @@ mod tests {
         assert_eq!(entry.headers.len(), 1);
         assert_eq!(entry.headers[0].key(), header.key());
         assert_eq!(entry.headers[0].value(), header.value());
+        assert_eq!(entry.attr(), Attr::default());
+        assert_eq!(entry.log_id(), 1);
+        assert_eq!(entry.entry_id(), 2);
+        assert_eq!(entry.last_confirm(), 3);
+        assert_eq!(entry.key(), &key);
+        assert_eq!(entry.value(), &value);
+        assert_eq!(entry.headers().len(), 1);
+        assert_eq!(entry.headers()[0].key(), header.key());
+        assert_eq!(entry.headers()[0].value(), header.value());
     }
 
     #[test]
