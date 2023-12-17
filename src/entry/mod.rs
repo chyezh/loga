@@ -1,6 +1,10 @@
+mod error;
+mod header;
 mod util;
 
+pub use error::Error;
 pub use util::Attr;
+pub type Result<T> = std::result::Result<T, Error>;
 
 use bytes::Bytes;
 use util::Magic;
