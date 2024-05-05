@@ -1,0 +1,10 @@
+[package]
+name = "storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.80"
+bytes = { version = "1.5.0", features = ["serde"] }
+prost = "0.12.4"
+thiserror = "1.0.59"

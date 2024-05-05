@@ -1,7 +1,3 @@
-[package]
-name = "loga"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-bytes = { version = "1.5.0", features = ["serde"] }
+[workspace]
+resolver = "2"
+members = ["lib/storage"]

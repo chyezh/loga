@@ -1,3 +1,5 @@
+use super::{Error, Result};
+
 /// The `Attr` is used to identify the type of the entry.
 #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
 pub struct Attr(i32);
@@ -22,11 +24,13 @@ pub enum Magic {
     V1 = 0x01,
 }
 
-impl From<u8> for Magic {
-    fn from(magic: u8) -> Self {
-        match magic {
-            0x01 => Self::V1,
-            _ => panic!("unknown magic: {}", magic),
+impl TryFrom<u8> for Magic {
+    type Error = super::Error;
+
+    fn try_from(value: u8) -> super::Result<Self> {
+        match value {
+            0x01 => Ok(Self::V1),
+            _ => Err(Error::InvalidMagic),
         }
     }
 }
