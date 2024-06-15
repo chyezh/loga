@@ -1,4 +1,4 @@
-use super::impls::EntryV1;
+use super::impls_v1::EntryV1;
 use super::Attr;
 use super::Entry;
 use super::Header;

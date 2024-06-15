@@ -3,6 +3,9 @@ pub enum Error {
     #[error("invalid magic")]
     InvalidMagic,
 
+    #[error("decode buffer not enough")]
+    DecodeBufNotEnough,
+
     #[error("prost encode")]
     ProstEncode(#[from] prost::EncodeError),
 

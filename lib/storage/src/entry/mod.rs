@@ -1,7 +1,7 @@
 mod builder;
 mod error;
 mod header;
-mod impls;
+mod impls_v1;
 mod util;
 
 pub use builder::Builder;
@@ -10,7 +10,7 @@ pub use error::Error;
 pub use header::Header;
 pub use util::{Attr, Magic};
 
-use self::impls::EntryV1;
+use self::impls_v1::EntryV1;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// decode an entry from a buffer.
@@ -46,8 +46,8 @@ pub trait Entry {
     /// Returns the headers of the entry.
     fn headers(&self) -> &[Header];
 
-    /// Estimates the size of the entry.
-    fn estimate_size(&self) -> usize;
+    /// Get the binary size of the entry.
+    fn binary_size(&self) -> usize;
 
     /// Encodes the entry into a buffer.
     fn encode<B: BufMut>(&self, buf: B) -> Result<()>;
@@ -56,6 +56,9 @@ pub trait Entry {
     fn decode_without_magic<B: Buf>(buf: B) -> Result<Self>
     where
         Self: Sized;
+
+    /// Read at a specific offset of Entry's binary representation.
+    fn read_at(&self, buf: &mut [u8], offset: usize) -> usize;
 }
 
 #[cfg(test)]
@@ -139,7 +142,7 @@ mod tests {
     }
 
     #[test]
-    fn test_estimate_size() {
+    fn test_binary_size() {
         let key = Bytes::from_static(b"key");
         let value = Bytes::from_static(b"value");
         let header = Header::new(key.clone(), value.clone());
@@ -154,10 +157,10 @@ mod tests {
 
         let entry = builder.build(Magic::V1);
 
-        // Calculate the estimated size
-        let estimated_size = entry.estimate_size();
+        // Calculate the binary size
+        let binary_size = entry.binary_size();
 
-        // Check that the estimated size is correct
+        // Check that the binary size is correct
         // Magic::V1 size + log_id size + entry_id size + attr size + last_confirm size + kv size + headers size
         let expected_size = 1
             + 4
@@ -166,6 +169,63 @@ mod tests {
             + 8
             + (key.len() + value.len() + 2)
             + (header.key().len() + header.value().len() + 2);
-        assert_eq!(estimated_size, expected_size);
+        assert_eq!(binary_size, expected_size);
+    }
+
+    #[test]
+    fn test_read_at() {
+        let key = Bytes::from_static(b"key");
+        let value = Bytes::from_static(b"value");
+        let header = Header::new(key.clone(), value.clone());
+
+        let entry = Builder::default()
+            .log_id(1)
+            .entry_id(2)
+            .attr(Attr::default())
+            .last_confirm(3)
+            .kv(key.clone(), value.clone())
+            .header(header.clone())
+            .header(header)
+            .build(Magic::V1);
+
+        let mut buf: [u8; 1] = [0; 1];
+        let mut finial_decoded = Vec::new();
+        let mut n = 0;
+        loop {
+            let k = entry.read_at(&mut buf[..], n);
+            if k == 0 {
+                break;
+            }
+            n += k;
+            finial_decoded.put_slice(&buf[..]);
+        }
+        assert_eq!(finial_decoded.len(), entry.binary_size());
+
+        // Encode the entry into a buffer
+        let mut buf = BytesMut::new();
+        entry.encode(&mut buf).unwrap();
+        let buf = buf.freeze();
+
+        assert_eq!(buf.len(), finial_decoded.len());
+
+        // Decode the buffer back into an entry
+        let decoded_entry = decode(buf).unwrap();
+
+        // Check that the decoded entry is the same as the original entry
+        assert_eq!(decoded_entry.magic(), entry.magic());
+        assert_eq!(decoded_entry.log_id(), entry.log_id());
+        assert_eq!(decoded_entry.entry_id(), entry.entry_id());
+        assert_eq!(decoded_entry.attr(), entry.attr());
+        assert_eq!(decoded_entry.last_confirm(), entry.last_confirm());
+        assert_eq!(decoded_entry.key(), entry.key());
+        assert_eq!(decoded_entry.value(), entry.value());
+        assert_eq!(decoded_entry.headers().len(), entry.headers().len());
+        for i in 0..decoded_entry.headers().len() {
+            assert_eq!(decoded_entry.headers()[i].key(), entry.headers()[i].key());
+            assert_eq!(
+                decoded_entry.headers()[i].value(),
+                entry.headers()[i].value()
+            );
+        }
     }
 }

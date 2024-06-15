@@ -1,4 +1,4 @@
-use super::{Error, Result};
+use super::Error;
 
 /// The `Attr` is used to identify the type of the entry.
 #[derive(Debug, Default, PartialEq, Eq, Copy, Clone)]
