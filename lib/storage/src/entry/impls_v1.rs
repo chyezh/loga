@@ -1,3 +1,5 @@
+use bytes::{Buf, BufMut, Bytes};
+
 use crate::util::copy_slice;
 
 use super::Attr;
@@ -5,7 +7,7 @@ use super::Entry;
 use super::Header;
 use super::Magic;
 use super::Result;
-use bytes::{Buf, BufMut, Bytes};
+use super::{util::copy_slice_with_multi_stage, util::customize_copy_slice_with_multi_stage};
 
 // Magic 1
 // Attr 4
@@ -75,11 +77,12 @@ impl BuilderV1 {
     }
 
     /// Method to build the Entry
-    pub fn build(self) -> impl Entry {
+    pub fn build(mut self) -> impl Entry {
+        self.headers
+            .push(self.kv.expect("missing kv field in entry"));
         EntryV1 {
             common_header: self.common_header,
             headers: self.headers,
-            kv: self.kv.expect("missing kv field in entry"),
         }
     }
 
@@ -111,7 +114,6 @@ impl BuilderV1 {
 pub struct EntryV1 {
     pub common_header: [u8; COMMON_HEADER_BINARY_SIZE],
     pub headers: Vec<Header>,
-    pub kv: Header,
 }
 
 impl Entry for EntryV1 {
@@ -136,15 +138,15 @@ impl Entry for EntryV1 {
     }
 
     fn key(&self) -> &Bytes {
-        self.kv.key()
+        self.headers.last().unwrap().key()
     }
 
     fn value(&self) -> &Bytes {
-        self.kv.value()
+        self.headers.last().unwrap().value()
     }
 
     fn headers(&self) -> &[Header] {
-        &self.headers
+        &self.headers[..self.headers.len() - 1]
     }
 
     fn binary_size(&self) -> usize {
@@ -154,9 +156,6 @@ impl Entry for EntryV1 {
             size += prost::length_delimiter_len(header_size);
             size += header_size;
         }
-        let kv_size = self.kv.binary_size();
-        size += prost::length_delimiter_len(kv_size);
-        size += kv_size;
         size
     }
 
@@ -167,9 +166,6 @@ impl Entry for EntryV1 {
             prost::encode_length_delimiter(size, &mut buf)?;
             header.encode(&mut buf)?;
         }
-        let size = self.kv.binary_size();
-        prost::encode_length_delimiter(size, &mut buf)?;
-        self.kv.encode(&mut buf)?;
         Ok(())
     }
 
@@ -187,69 +183,48 @@ impl Entry for EntryV1 {
             headers.push(Header::decode(&mut header_buf)?);
             buf = header_buf.into_inner();
         }
-        let kv: Header = headers.pop().expect("missing kv field in entry");
+        if headers.is_empty() {
+            return Err(super::Error::KVNotFound);
+        }
         Ok(Self {
             common_header,
-            kv,
             headers,
         })
     }
 
     fn read_at(&self, buf: &mut [u8], mut offset: usize) -> usize {
         let mut n = 0;
-        if offset < COMMON_HEADER_BINARY_SIZE {
-            let tmp_n = self.read_common_header_at_offset(buf, offset);
-            n += tmp_n;
-            if n == buf.len() {
-                return n;
-            }
-            offset += tmp_n;
-        }
-        offset -= COMMON_HEADER_BINARY_SIZE;
+
+        copy_slice_with_multi_stage!(self.common_header, buf, offset, n);
+
         for header in &self.headers {
-            (offset, n) = Self::read_at_header(header, offset, buf, n);
-            if n == buf.len() {
-                return n;
-            }
+            let header_size = header.binary_size();
+            let header_size_delimiter_size = prost::length_delimiter_len(header_size);
+            let header_size_delimiter_getter = || -> Vec<u8> {
+                let mut tmp_storage = Vec::with_capacity(header_size_delimiter_size);
+                prost::encode_length_delimiter(header_size, &mut tmp_storage).unwrap();
+                tmp_storage
+            };
+            customize_copy_slice_with_multi_stage!(
+                copy_slice(&header_size_delimiter_getter(), &mut buf[n..]),
+                header_size_delimiter_size,
+                buf,
+                offset,
+                n
+            );
+            customize_copy_slice_with_multi_stage!(
+                header.read_at(&mut buf[n..], offset),
+                header_size,
+                buf,
+                offset,
+                n
+            );
         }
-        (_, n) = Self::read_at_header(&self.kv, offset, buf, n);
         n
     }
 }
 
 impl EntryV1 {
-    fn read_at_header(
-        header: &Header,
-        mut offset: usize,
-        buf: &mut [u8],
-        mut n: usize,
-    ) -> (usize, usize) {
-        let header_size = header.binary_size();
-        let size_of_header_size_delimiter = prost::length_delimiter_len(header_size);
-        if offset < size_of_header_size_delimiter {
-            let mut tmp_storage = Vec::with_capacity(header_size);
-            prost::encode_length_delimiter(header_size, &mut tmp_storage).unwrap();
-            let tmp_n = copy_slice(&tmp_storage[offset..], &mut buf[n..]);
-            n += tmp_n;
-            if n == buf.len() {
-                return (offset, n);
-            }
-            offset += tmp_n;
-        }
-        offset -= size_of_header_size_delimiter;
-
-        if offset < header_size {
-            let tmp_n = header.read_at(&mut buf[n..], offset);
-            n += tmp_n;
-            if n == buf.len() {
-                return (offset, n);
-            }
-            offset += tmp_n;
-        }
-        offset -= header_size;
-        (offset, n)
-    }
-
     fn get_i64_from_common_header(&self, offset: usize) -> i64 {
         let mut buf = [0; 8];
         copy_slice(&self.common_header[offset..offset + 8], &mut buf);
@@ -260,9 +235,5 @@ impl EntryV1 {
         let mut buf = [0; 4];
         copy_slice(&self.common_header[offset..offset + 4], &mut buf);
         i32::from_le_bytes(buf)
-    }
-
-    fn read_common_header_at_offset(&self, buf: &mut [u8], offset: usize) -> usize {
-        copy_slice(&self.common_header[offset..], buf)
     }
 }
