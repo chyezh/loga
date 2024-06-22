@@ -1,9 +1,8 @@
 use bytes::{Buf, BufMut, Bytes};
 
-use crate::util::copy_slice;
+use crate::util::{copy_slice, copy_slice_with_multi_stage, customize_copy_slice_with_multi_stage};
 
 use super::Result;
-use super::{util::copy_slice_with_multi_stage, util::customize_copy_slice_with_multi_stage};
 
 // Defining a struct Header with key and value as Bytes
 // It use length delimited encoding

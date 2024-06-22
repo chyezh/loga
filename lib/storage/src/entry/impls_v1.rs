@@ -1,13 +1,12 @@
 use bytes::{Buf, BufMut, Bytes};
 
-use crate::util::copy_slice;
+use crate::util::{copy_slice, copy_slice_with_multi_stage, customize_copy_slice_with_multi_stage};
 
 use super::Attr;
 use super::Entry;
 use super::Header;
 use super::Magic;
 use super::Result;
-use super::{util::copy_slice_with_multi_stage, util::customize_copy_slice_with_multi_stage};
 
 // Magic 1
 // Attr 4
