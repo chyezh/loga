@@ -1,7 +1,9 @@
-// Importing necessary modules and types
-use super::Result;
-use crate::util::copy_slice;
 use bytes::{Buf, BufMut, Bytes};
+
+use crate::util::copy_slice;
+
+use super::Result;
+use super::{util::copy_slice_with_multi_stage, util::customize_copy_slice_with_multi_stage};
 
 // Defining a struct Header with key and value as Bytes
 // It use length delimited encoding
@@ -13,57 +15,52 @@ pub struct Header {
 
 // Implementing methods for Header struct
 impl Header {
-    // Constructor for Header
+    /// Constructor for Header
     pub fn new(key: Bytes, value: Bytes) -> Self {
         Self { key, value }
     }
 
-    // Getter for key
+    /// Getter for key
     pub fn key(&self) -> &Bytes {
         &self.key
     }
 
-    // Getter for value
+    /// Getter for value
     pub fn value(&self) -> &Bytes {
         &self.value
     }
 
-    // read at a specific offset of Header's binary representation.
-    pub fn read_at(&self, buf: &mut [u8], offset: usize) -> usize {
+    /// read at a specific offset of Header's binary representation.
+    pub fn read_at(&self, buf: &mut [u8], mut offset: usize) -> usize {
         let key_len = self.key.len();
         let key_len_size = prost::length_delimiter_len(key_len);
         let mut n = 0;
-        if offset < key_len_size {
+        let key_len_delimiter_getter = || {
             let mut tmp_storage = Vec::with_capacity(key_len_size);
             // There's enough capacity, so should never fail.
             prost::encode_length_delimiter(key_len, &mut tmp_storage).unwrap();
-            n = copy_slice(&tmp_storage[offset..], &mut buf[..]);
-            if n == buf.len() {
-                return n;
-            }
-        }
-        if offset + n < key_len_size + key_len {
-            n += copy_slice(&self.key[offset + n - key_len_size..], &mut buf[n..]);
-            if n == buf.len() {
-                return n;
-            }
-        }
-        if offset + n < key_len_size + key_len + self.value.len() {
-            n += copy_slice(
-                &self.value[offset + n - key_len_size - key_len..],
-                &mut buf[n..],
-            );
-        }
+            tmp_storage
+        };
+
+        customize_copy_slice_with_multi_stage!(
+            copy_slice(&key_len_delimiter_getter(), &mut buf[n..]),
+            key_len_size,
+            buf,
+            offset,
+            n
+        );
+        copy_slice_with_multi_stage!(self.key, buf, offset, n);
+        copy_slice_with_multi_stage!(self.value, buf, offset, n);
         n
     }
 
-    // Method to get the binary size of the Header
+    /// Method to get the binary size of the Header
     pub fn binary_size(&self) -> usize {
         let key_len = self.key.len();
         prost::length_delimiter_len(key_len) + self.key.len() + self.value.len()
     }
 
-    // Method to encode the Header into a buffer
+    /// Method to encode the Header into a buffer
     pub fn encode<B: BufMut>(&self, buf: &mut B) -> Result<()> {
         // Get the length of the key
         let length = self.key.len();
@@ -76,7 +73,7 @@ impl Header {
         Ok(())
     }
 
-    // Method to decode the Header from a buffer
+    /// Method to decode the Header from a buffer
     pub fn decode<B: Buf>(mut buf: B) -> Result<Self> {
         // Decode the length of the key from the buffer
         let key_len = prost::decode_length_delimiter(&mut buf)?;

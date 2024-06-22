@@ -11,4 +11,7 @@ pub enum Error {
 
     #[error("prost decode")]
     ProstDecode(#[from] prost::DecodeError),
+
+    #[error("kv not found")]
+    KVNotFound,
 }
