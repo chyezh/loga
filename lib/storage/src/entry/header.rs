@@ -170,4 +170,31 @@ mod tests {
         assert_eq!(n, header.binary_size());
         assert_eq!(buf, b"\x03keyvalue");
     }
+
+    #[test]
+    fn test_read_at_all() {
+        for i in 1..10 {
+            read_all(i);
+        }
+    }
+
+    fn read_all(step: usize) {
+        let key = Bytes::from_static(b"key");
+        let value = Bytes::from_static(b"value");
+        let header = Header::new(key.clone(), value.clone());
+
+        let mut buf = vec![0; step];
+        let mut all = vec![];
+        let mut offset = 0;
+        loop {
+            let n = header.read_at(&mut buf, offset);
+            offset += n;
+            all.extend_from_slice(&buf[..n]);
+            if n == 0 {
+                break;
+            }
+        }
+        assert_eq!(all, b"\x03keyvalue");
+        assert_eq!(offset, header.binary_size());
+    }
 }
