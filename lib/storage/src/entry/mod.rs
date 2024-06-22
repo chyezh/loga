@@ -1,23 +1,21 @@
-mod builder;
 mod error;
 mod header;
 mod impls_v1;
 mod util;
 
-pub use builder::Builder;
 use bytes::{Buf, BufMut};
 pub use error::Error;
 pub use header::Header;
 pub use util::{Attr, Magic};
 
-use self::impls_v1::EntryV1;
+use self::impls_v1::{BuilderV1, EntryV1};
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// decode an entry from a buffer.
 pub fn decode<B: Buf>(mut buf: B) -> Result<impl Entry> {
     let magic = Magic::try_from(buf.get_u8())?;
     match magic {
-        Magic::V1 => EntryV1::decode_without_magic(buf),
+        Magic::V1 => EntryV1::decode_without_magic(magic, buf),
     }
 }
 
@@ -34,8 +32,8 @@ pub trait Entry {
     /// Returns the entry ID of the entry.
     fn entry_id(&self) -> i64;
 
-    /// Returns the last confirm of the entry.
-    fn last_confirm(&self) -> i64;
+    /// Returns the last confirm id of the entry.
+    fn last_confirm_id(&self) -> i64;
 
     /// Returns the key of the entry.
     fn key(&self) -> &bytes::Bytes;
@@ -53,7 +51,7 @@ pub trait Entry {
     fn encode<B: BufMut>(&self, buf: B) -> Result<()>;
 
     /// Decodes the buffer into an entry.
-    fn decode_without_magic<B: Buf>(buf: B) -> Result<Self>
+    fn decode_without_magic<B: Buf>(magic: Magic, buf: B) -> Result<Self>
     where
         Self: Sized;
 
@@ -72,20 +70,20 @@ mod tests {
         let value = Bytes::from_static(b"value");
         let header = Header::new(key.clone(), value.clone());
 
-        let entry = Builder::default()
+        let entry = BuilderV1::new()
             .log_id(1)
             .entry_id(2)
             .attr(Attr::default())
-            .last_confirm(3)
+            .last_confirm_id(3)
             .kv(key.clone(), value.clone())
             .header(header.clone())
-            .build(Magic::V1);
+            .build();
 
         assert_eq!(entry.magic(), Magic::V1);
         assert_eq!(entry.attr(), Attr::default());
         assert_eq!(entry.log_id(), 1);
         assert_eq!(entry.entry_id(), 2);
-        assert_eq!(entry.last_confirm(), 3);
+        assert_eq!(entry.last_confirm_id(), 3);
         assert_eq!(entry.key(), &key);
         assert_eq!(entry.value(), &value);
         assert_eq!(entry.headers().len(), 1);
@@ -94,10 +92,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "called `Option::unwrap()` on a `None` value")]
+    #[should_panic(expected = "missing kv field in entry")]
     fn test_entry_builder_build_unwrap_none() {
-        let builder = Builder::default();
-        builder.build(Magic::V1); // This should panic because we didn't set any values
+        let builder = BuilderV1::new();
+        builder.build(); // This should panic because we didn't set any values
     }
 
     #[test]
@@ -106,15 +104,15 @@ mod tests {
         let value = Bytes::from_static(b"value");
         let header = Header::new(key.clone(), value.clone());
 
-        let builder = Builder::default()
+        let builder = BuilderV1::new()
             .log_id(1)
             .entry_id(2)
             .attr(Attr::default())
-            .last_confirm(3)
+            .last_confirm_id(3)
             .kv(key.clone(), value.clone())
             .header(header.clone());
 
-        let entry = builder.build(Magic::V1);
+        let entry = builder.build();
 
         // Encode the entry into a buffer
         let mut buf = BytesMut::new();
@@ -128,7 +126,7 @@ mod tests {
         assert_eq!(decoded_entry.log_id(), entry.log_id());
         assert_eq!(decoded_entry.entry_id(), entry.entry_id());
         assert_eq!(decoded_entry.attr(), entry.attr());
-        assert_eq!(decoded_entry.last_confirm(), entry.last_confirm());
+        assert_eq!(decoded_entry.last_confirm_id(), entry.last_confirm_id());
         assert_eq!(decoded_entry.key(), entry.key());
         assert_eq!(decoded_entry.value(), entry.value());
         assert_eq!(decoded_entry.headers().len(), entry.headers().len());
@@ -147,15 +145,15 @@ mod tests {
         let value = Bytes::from_static(b"value");
         let header = Header::new(key.clone(), value.clone());
 
-        let builder = Builder::default()
+        let builder = BuilderV1::new()
             .log_id(1)
             .entry_id(2)
             .attr(Attr::default())
-            .last_confirm(3)
+            .last_confirm_id(3)
             .kv(key.clone(), value.clone())
             .header(header.clone());
 
-        let entry = builder.build(Magic::V1);
+        let entry = builder.build();
 
         // Calculate the binary size
         let binary_size = entry.binary_size();
@@ -174,21 +172,27 @@ mod tests {
 
     #[test]
     fn test_read_at() {
+        for i in 1..16 {
+            read_all(i);
+        }
+    }
+
+    fn read_all(step: usize) {
         let key = Bytes::from_static(b"key");
         let value = Bytes::from_static(b"value");
         let header = Header::new(key.clone(), value.clone());
 
-        let entry = Builder::default()
+        let entry = BuilderV1::new()
             .log_id(1)
             .entry_id(2)
             .attr(Attr::default())
-            .last_confirm(3)
+            .last_confirm_id(3)
             .kv(key.clone(), value.clone())
             .header(header.clone())
             .header(header)
-            .build(Magic::V1);
+            .build();
 
-        let mut buf: [u8; 1] = [0; 1];
+        let mut buf = vec![0; step];
         let mut finial_decoded = Vec::new();
         let mut n = 0;
         loop {
@@ -197,7 +201,7 @@ mod tests {
                 break;
             }
             n += k;
-            finial_decoded.put_slice(&buf[..]);
+            finial_decoded.extend_from_slice(&buf[..k]);
         }
         assert_eq!(finial_decoded.len(), entry.binary_size());
 
@@ -216,7 +220,7 @@ mod tests {
         assert_eq!(decoded_entry.log_id(), entry.log_id());
         assert_eq!(decoded_entry.entry_id(), entry.entry_id());
         assert_eq!(decoded_entry.attr(), entry.attr());
-        assert_eq!(decoded_entry.last_confirm(), entry.last_confirm());
+        assert_eq!(decoded_entry.last_confirm_id(), entry.last_confirm_id());
         assert_eq!(decoded_entry.key(), entry.key());
         assert_eq!(decoded_entry.value(), entry.value());
         assert_eq!(decoded_entry.headers().len(), entry.headers().len());
